@@ -1,0 +1,9 @@
+etc/apt
+etc/apt/apt.conf.d
+etc/apt/sources.list.d
+usr/share/cl-defaults
+usr/share/cl-defaults/diverted
+usr/share/cl-defaults/diverted/applications
+usr/share/cl-defaults/diverted/control-center-2.0/capplets
+usr/share/cl-defaults/diverted/gnome/apps/Internet
+usr/share/cl-defaults/diverted/gnome/vfolders

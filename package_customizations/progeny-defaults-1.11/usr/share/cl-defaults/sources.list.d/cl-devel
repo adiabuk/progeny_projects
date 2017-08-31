@@ -1,0 +1,3 @@
+# Componentized Linux development support:
+deb http://archive.progeny.com/progeny/linux/debian cl cl-devel
+deb-src http://archive.progeny.com/progeny/linux/debian cl cl-devel

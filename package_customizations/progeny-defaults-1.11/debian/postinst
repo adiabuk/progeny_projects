@@ -1,0 +1,70 @@
+#! /bin/sh
+
+if [ "$1" = "configure" ]
+then
+    #
+    # Install /etc/apt/preferences and /etc/apt/sources.list if
+    # they do not already exist:
+    #
+
+    if [ ! -f /etc/apt/preferences ]
+    then
+        echo -n "Installing default /etc/apt/preferences... "
+        cp -p /etc/apt/preferences.default /etc/apt/preferences
+        echo "done."
+    fi
+    if [ ! -f /etc/apt/sources.list ]
+    then
+        echo -n "Installing default /etc/apt/sources.list... "
+        cp -p /etc/apt/sources.list.default /etc/apt/sources.list
+        echo "done."
+    fi
+
+    #
+    # Check all the files in /etc/apt/sources.list.d.  Check symlinks
+    # for freshness, and regular files to see if they match official
+    # ones.
+    #
+
+    echo -n "Fixing sources.list.d symlinks... "
+    for sldpath in /etc/apt/sources.list.d/*
+    do
+        slddest="/usr/share/cl-defaults/sources.list.d/`basename $sldpath`"
+
+        if [ -h "$sldpath" ]
+        then
+            if [ ! -e `readlink $sldpath` ]
+            then
+                # Stale symlink.
+                rm -f "$sldpath"
+            fi
+        else
+            if [ -f "$slddest" ]
+            then
+                # Filename matches an official one.  Symlink it.
+                rm "$sldpath"
+                ln -s "$slddest" "$sldpath"
+            fi
+        fi
+    done
+    echo "done."
+
+    #
+    # Check for new files in /usr/share/cl-defaults/sources.list.d.
+    #
+
+    echo -n "Checking for new sources.list.d components... "
+    for sldpath in /usr/share/cl-defaults/sources.list.d/*
+    do
+        slddest="/etc/apt/sources.list.d/`basename $sldpath`"
+        if [ ! -e "$slddest" ]
+        then
+            ln -s "$sldpath" "$slddest"
+        fi
+    done
+    echo "done."
+
+    update-sources.list
+fi
+
+#DEBHELPER#

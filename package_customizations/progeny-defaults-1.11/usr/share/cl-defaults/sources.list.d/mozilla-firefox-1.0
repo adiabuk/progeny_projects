@@ -1,0 +1,3 @@
+# Mozilla Firefox 1.0:
+deb http://archive.progeny.com/progeny/linux/debian cl mozilla-firefox-1.0
+deb-src http://archive.progeny.com/progeny/linux/debian cl mozilla-firefox-1.0

@@ -1,0 +1,3 @@
+# Graphics file format support:
+deb http://archive.progeny.com/progeny/linux/debian cl graphics
+deb-src http://archive.progeny.com/progeny/linux/debian cl graphics

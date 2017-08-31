@@ -1,0 +1,418 @@
+#! /bin/sh
+#
+# Copyright (C) 2000-2004 by
+#        Bernhard Rosenkraenzer <bero@redhat.com>
+#        Oliver Paukstadt <opaukstadt@millenux.com>
+#        Karsten Hopp <karsten@redhat.de>
+#        Florian La Roche <laroche@redhat.com>
+#        Nils Philippsen <nils@redhat.de>
+#        Helge Deller <hdeller@redhat.de>
+#        David Sainty <dsainty@redhat.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+VERSION=1.1
+
+export TEXTDOMAIN=s390installer
+export TEXTDOMAINDIR=/usr/lib/locale
+
+doshutdown()
+{
+	 exec /sbin/shutdown
+	 exit 0
+}
+
+doreboot()
+{
+	 exec /sbin/shutdown -r
+	 exit 0
+}
+
+startinetd()
+{
+	echo
+	echo $"Starting telnetd and sshd to allow login over the network."
+   echo $"Welcome to the Red Hat Linux install environment $VERSION for $S390ARCH" > /etc/issue.net
+   echo $"Welcome to the Red Hat Linux install environment $VERSION for $S390ARCH" > /etc/motd
+   echo >> /etc/motd
+
+	/sbin/xinetd -stayalive -reuse -pidfile /tmp/xinetd.pid
+	/sbin/sshd
+	if [ -z "$RUNKS" ]; then
+	  echo 
+	  echo $"Connect now to $IPADDR to start the installation."
+	  read
+  	  while : ; do
+			/bin/sh --login
+			[ $? = 0 ] || break
+	  done
+	fi
+}
+
+setupdevice()
+{
+   if [ -z "$CCWDEV" -o -z "$DIRNAME" ]; then
+      echo $"CCWDEV and DIRNAME empty, cannot continue."
+      exit 1
+   fi
+   SYSDIR=${CCWDEV//,*/}   # get first subchannel. This is where the device can be brought online
+   echo "$CCWDEV"  >/sys/bus/ccwgroup/drivers/${DIRNAME}/group
+   [ -n "$PORTNAME" ] && echo "$PORTNAME" > /sys/bus/ccwgroup/drivers/${DIRNAME}/${SYSDIR}/portname
+   echo 1 > /sys/bus/ccwgroup/drivers/${DIRNAME}/${SYSDIR}/online
+}
+
+convertchandev()
+{
+   local del dev channels
+   if [ -z "$CHANDEV" -o -n "$CCWDEV" ]; then
+      return
+   fi
+   dev=${CHANDEV//,*/}
+   channels=${CHANDEV#${dev},*}
+   channels=${channels//0x/0}
+   CCWDEV="0.0.${channels//,*/}"
+   channels="${channels#*,}"
+   CCWDEV="$CCWDEV,0.0.${channels//,*/}"
+   if [ "$NETTYPE" = "eth" -o "$NETTYPE" = "hsi" ]; then
+      channels="${channels#*,}"
+      CCWDEV="$CCWDEV,0.0.${channels//,*/}"
+   fi
+   [ -z "$QETHPARM" ] && return
+   del=${QETHPARM%%portname:*}
+   PORTNAME=${QETHPARM#${del}}
+   PORTNAME=${PORTNAME//,*/}
+}
+
+S390ARCH=`uname -m`
+if [ "$S390ARCH" = "s390" ]; then
+   export S390ARCH="S/390"
+else
+   export S390ARCH="zSeries"
+fi
+
+echo $"Starting the $S390ARCH initrd to configure networking. Version is $VERSION"
+
+
+# set up env vars as we do in init.c
+if [ `uname -m` = "s390x" ]; then
+	 LD_LIBRARY_PATH=/lib64:/usr/lib64:/usr/X11R6/lib64:/usr/kerberos/lib64:/lib:/usr/lib:/usr/X11R6/lib:/usr/kerberos/lib
+else
+	 LD_LIBRARY_PATH=/lib:/usr/lib:/usr/X11R6/lib:/usr/kerberos/lib
+fi
+export LD_LIBRARY_PATH
+
+PATH="PATH=/usr/bin:/bin:/sbin:/usr/sbin:/mnt/sysimage/bin:/mnt/sysimage/usr/bin:/mnt/sysimage/usr/sbin:/mnt/sysimage/sbin:/mnt/sysimage/usr/X11R6/bin"
+export PATH
+HOME=/
+export HOME
+PYTHONPATH=/tmp/updates
+export PYTHONPATH
+
+mount -t proc none /proc
+mount -t devpts /dev/pts /dev/pts
+mount -t sysfs none /sys
+# remount root fs rw
+mount /dev/root /  -o remount,rw
+
+# limit output on x3270 console (well, not really -- need debugging now)
+echo "8 4 1 1" > /proc/sys/kernel/printk
+
+# make /tmp/ramfs
+mount -t ramfs none /tmp
+
+ifconfig lo 127.0.0.1 netmask 255.0.0.0
+route add -host 127.0.0.1 dev lo 2>/dev/null
+
+LO=""
+
+[ -L /sbin/insmod ] && LO=".ko"
+
+# Parse configuration
+# Check for missing parameters, prompt for them if necessary
+while [ -z "$NETTYPE" ]; do
+	echo $"Which kind of network device do you intend to use"
+   echo $"  (e.g. ctc, escon, iucv, eth, hsi, lcs, tr)."
+   echo $"Enter 'eth' for OSA-Express Fast Ethernet, Gigabit Ethernet"
+   echo $"  (including 1000Base-T), High Speed Token Ring, and ATM "
+   echo $"  (running Ethernet LAN emulation) features in QDIO mode."
+   echo $"Enter 'hsi' for Guest LANs using virtual HiperSockets or"
+   echo $"  HiperSockets."
+	read NETTYPE
+done
+DEVICE=${NETTYPE}0
+if [ "$NETTYPE" != "iucv" ]; then   # iucv is the only interface without ccw config
+   convertchandev
+   while [ -z "$CCWDEV" ]; do
+		echo $"Enter the bus ID and the device number of your CCW devices."
+		echo $"CTC, ESCON and LCS need two subchannels:"
+		echo $"(e.g. \"0.0.0600,0.0.0601\" will configure the CTC or ESCON interface"
+		echo $"with the subchannels 0x600 and 0x601)"
+		echo $"QETH and HSI need three subchannels p.e. 0.0.03000,0.0.03001,0.0.03002"
+		read CCWDEV
+   done
+	if [ "$NETTYPE" = "eth" -o "$NETTYPE" = "hsi" ]; then
+		if [ -z "$PORTNAME" ]; then
+			echo $"Each OSA-Express feature in QDIO mode must be associated with a port name"
+			echo $"Enter additional parameters for your QETH device"
+			echo $"(e.g. \"add_parms,0x10,{lo_devno,hi_devno},portname:port_name\")"
+			echo $"Press enter if you don't want to enter additional parameters"
+			read PORTNAME
+		fi
+      DIRNAME="qeth"
+   elif [ "$NETTYPE" = "ctc" -o "$NETTYPE" = "escon" ]; then
+      DIRNAME="ctc"
+   elif [ "$NETTYPE" = "lcs" -o "$NETTYPE" = "tr" ]; then
+      DIRNAME="lcs"
+   fi
+      
+else
+   DIRNAME="iucv"
+fi
+while [ -z "$HOSTNAME" -o "$HOSTNAME" = "(none)" ]; do
+	echo $"Enter the FQDN of your new Linux guest (e.g. s390.redhat.com):"
+	read HOSTNAME
+done
+while [ -z "$IPADDR" ]; do
+  echo $"Enter the IP address of your new Linux guest:"
+  read IPADDR
+done
+while [ -z "$NETWORK" ]; do
+  echo $"Enter the network address of the new Linux guest:"
+  read NETWORK
+done
+if [ "$NETTYPE" = "eth" ] || [ "$NETTYPE" = "tr" ] || [ "$NETTYPE" = "hsi" ] || [ "$NETTYPE" = "lcs" ]; then
+	 while [ -z "$NETMASK" ]; do
+		  echo $"Enter the netmask for the new Linux guest (e.g. 255.255.255.0):"
+		  read NETMASK
+	 done
+	 while [ -z "$BROADCAST" ]; do
+		  echo $"Enter the broadcast address for the new Linux guest:"
+		  read BROADCAST
+	 done
+	 while [ -z "$GATEWAY" ]; do
+		  echo $"Enter your default gateway:"
+		  read GATEWAY
+	 done
+else  # ctc0, escon0, iucv0
+    if [ -z "$NETMASK" ]; then
+        # If the user did not supply netmask, we add the right one.
+        # Netmask MUST be present, or pumpSetupInterface() blows routes.
+        NETMASK="255.255.255.255"
+    fi
+	 while [ -z "$GATEWAY" ]; do
+		  echo $"Enter the IP of your CTC / ESCON / IUCV point-to-point partner:"
+		  read GATEWAY
+	 done
+
+	 if [ "$NETTYPE" = "ctc" -a -z "$MTU" ]; then
+		  MTU="1500"
+	 fi
+	 if [ ":$NETTYPE" = ":iucv" ]; then
+		  while [ -z "$IUCV" ]; do
+			   echo $"Enter iucv kernel module options (usually iucv=HOST,"
+			   echo $"where HOST is TCPIP for the VM TCP/IP service machine"
+				echo $"or the name (in capital letters) of another"
+				echo $"Linux guest:"
+			   read IUCV
+		  done
+		  if [ "${IUCV:0:5}" = "iucv=" ]; then
+				IUCV="iucv=$IUCV"
+		  fi
+	 fi
+fi
+# don't ask for MTU, but use it if it has been set in the .parm file
+# don't overwrite MMTU if it has been set for CTC
+if [ -n "$MTU" -a -z "$MMTU" ]; then
+	 MMTU="mtu $MTU"
+fi
+
+# configure network-interface
+if [ ":$NETTYPE" = ":ctc" -o ":$NETTYPE" = ":escon" ]; then
+	insmod cu3088$LO
+	insmod fsm$LO
+   insmod ccwgroup$LO
+	insmod ctc$LO
+   setupdevice
+	ifconfig $DEVICE $IPADDR $MMTU pointopoint $GATEWAY
+elif [ ":$NETTYPE" = ":iucv" ]; then
+	insmod fsm$LO
+	insmod iucv$LO
+	insmod netiucv$LO $IUCV
+	ifconfig $DEVICE $IPADDR $MMTU pointopoint $GATEWAY
+	if [ -n "$IUCV" ]; then
+		 echo "options netiucv $IUCV" >> /tmp/modules.conf
+	fi
+elif [ "$NETTYPE" = "lcs" -o "$NETTYPE" = "tr" ]; then
+   insmod ccwgroup$LO
+	insmod lcs$LO
+   setupdevice
+	ifconfig $DEVICE $IPADDR $MMTU netmask $NETMASK broadcast $BROADCAST
+	route add -net $NETWORK netmask $NETMASK dev $DEVICE 2>/dev/null
+   echo "alias $DEVICE lcs" >> /tmp/modules.conf
+elif [ "$NETTYPE" = "eth" -o "$NETTYPE" = "hsi" ]; then
+   insmod ccwgroup$LO
+	insmod qdio$LO
+	insmod qeth$LO
+   setupdevice
+	ifconfig $DEVICE $IPADDR $MMTU netmask $NETMASK broadcast $BROADCAST
+	route add -net $NETWORK netmask $NETMASK dev $DEVICE 2>/dev/null
+	echo "alias $DEVICE qeth" >> /tmp/modules.conf
+else
+   echo $"Unknown network device, aborting installation"
+   exit 1
+fi
+
+route add default gw $GATEWAY dev $DEVICE 2>/dev/null
+
+if [ -z "$DNS" ]; then
+	echo $"Enter your DNS server(s), separated by colons (:):"
+	read DNS
+fi
+if [ -z "$DNS" ]; then
+	echo $"You might encounter problems without a nameserver, especially"
+	echo $"with FTP installs"
+fi
+
+if [ -n "$DNS" -a -z "$SEARCHDNS" ]; then
+	echo $"Enter your DNS search domain(s) (if any), separated by colons (:):"
+	read SEARCHDNS
+fi
+
+[ -n "$HOSTNAME" ] && hostname $HOSTNAME
+
+# show interfaces and routing table
+ifconfig -a
+route -n
+
+#echo $"Starting portmap."
+#portmap
+
+# convert to space-separated lists
+if [ -n "$SEARCHDNS" ]; then
+	SEARCHDNS=`echo $SEARCHDNS |sed -e 's/:/ /g'`
+	for i in "$SEARCHDNS"; do echo "search $i"; done >> /etc/resolv.conf
+fi
+if [ -n "$DNS" ]; then
+	DNS=`echo $DNS |sed -e 's/:/ /g'`
+	for i in "$DNS"; do echo "nameserver $i"; done   >> /etc/resolv.conf
+fi
+
+if [ -z "$DASD" ]; then
+   echo
+   echo $"Enter DASD range (e.g. 200-203   or  200,201,202,203)"
+   echo $"Press <Enter> for autoprobing (not recommended):"
+   echo
+   read DASD
+fi
+if [ -n "$DASD" ]; then
+       echo "DASD=$DASD" > /tmp/dasd_ports
+fi
+
+grep -q ext3 /proc/filesystems
+if [ "$?" != "0" ]; then
+  insmod jbd$LO
+  insmod ext3$LO
+fi
+
+# transfer options into install environment
+cat > /tmp/install.cfg << EOF
+LANG="$LANG"
+S390ARCH="$S390ARCH"
+TEXTDOMAIN="$TEXTDOMAIN"
+TEXTDOMAINDIR="$TEXTDOMAINDIR"
+PORTNAME="$PORTNAME"
+HOSTNAME="$HOSTNAME"
+DEVICE="$DEVICE"
+NETTYPE="$NETTYPE"
+IPADDR="$IPADDR"
+GATEWAY="$GATEWAY"
+MTU="$MTU"
+NETWORK="$NETWORK"
+NETMASK="$NETMASK"
+BROADCAST="$BROADCAST"
+DNS="$DNS"
+SEARCHDNS="$SEARCHDNS"
+IUCV="$IUCV"
+ONBOOT="yes"
+export LANG PORTNAME S390ARCH TEXTDOMAIN TEXTDOMAINDIR
+export HOSTNAME DEVICE NETTYPE IPADDR GATEWAY MTU
+export NETWORK NETMASK BROADCAST DNS SEARCHDNS
+export IUCV ONBOOT CCWDEV
+EOF
+# immediately read it in again to export these into the shell below
+. /tmp/install.cfg
+cat /tmp/install.cfg >> /etc/profile
+cat > /tmp/netinfo << EOF
+DEVICE=$DEVICE
+ONBOOT=yes
+BOOTPROTO=static
+IPADDR=$IPADDR
+NETMASK=$NETMASK
+GATEWAY=$GATEWAY
+BROADCAST=$BROADCAST
+HOSTNAME=$HOSTNAME
+DOMAIN=
+MTU=$MTU
+EOF
+
+# so that the vars get propagated into the sshd shells
+mkdir /.ssh
+cat >> /.ssh/environment <<EOF
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+PATH=$PATH
+HOME=$HOME
+PYTHONPATH=$PYTHONPATH
+EOF
+
+cat >> /etc/profile <<EOF
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+PATH=$PATH
+HOME=$HOME
+PYTHONPATH=$PYTHONPATH
+export LD_LIBRARY_PATH PATH HOME PYTHONPATH
+EOF
+
+if [ -n "$DISPLAY" ]; then
+	 echo "export DISPLAY=$DISPLAY" >> /etc/profile
+fi
+
+
+if [ "$NETTYPE" = "ctc" -o "$NETTYPE" = "escon" -o "$NETTYPE" = "iucv" ]; then
+   echo "REMIP=$GATEWAY" >> /tmp/netinfo 
+   echo "export REMIP=$GATEWAY" >> /etc/profile
+fi
+
+# I'm tired of typing this out...
+echo "loader" >> /.bash_history
+
+echo -n $$ > /var/run/init.pid
+# shutdown (halt) on SIGUSR1
+trap doshutdown SIGUSR1
+# reboot on SIGUSR2
+trap doreboot SIGUSR2
+
+startinetd
+
+if [ -n "$RUNKS" ]; then
+	 /sbin/loader
+fi
+
+doshutdown
+
+# ;;; Local Variables: ***
+# ;;; mode: sh ***
+# ;;; tab-width:3 ***
+# ;;; end: ***
+# vim:ts=3:sw=3

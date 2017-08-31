@@ -1,0 +1,118 @@
+HOWTO make a customized Debian Distribution based on the Progeny Componentized modem
+
+Author: Amro Diab – adiab@linuxmail.org
+
+This Howto provides instructions for making a customized Debian CD-Set based on the Componentized Linux model first used with Progeny Linux.  It assumes you have basic understanding of the Debian system, as well as the componentized Linux model, Anaconda, and XML.  See the following sites for more background:
+www.componentizedlinux.com
+www.progeny.com
+
+
+
+Creating a custom Linux Distribution based on Progeny 2.0 Development Edition
+
+Download and Install Progeny Debian from http://archive.progeny.com/progeny/linux/iso-i386/
+
+You only require the first two images – the binary ISO’s
+You will need all packages except those under the server category
+
+Next you will need to create your repository.
+Log in as root.  Create a folder in your root ‘/’ partition – call it the name of your new distribution – eg SGNix
+
+Within that directory create the following: dists, build, and ????
+
+Now download the progeny components into the structure:
+stewie:/#rsync -av rsync://archive.progeny.com/progeny/linux/dists/cl/ /SGNix/cl
+
+
+Locate or create any additional components or packages you wish to add.  You can find a good selection at http://cvs.linex.org/linex2004/dists/cl/
+
+Next, you will need to aquire the PICAX XML scripts using subversion and then configure them to suit your needs
+
+svn co svn://svn.progeny.com/cl/debian/trunk /SGNix/build
+
+
+Now you will need to edit the xml files to configure the way anaconda is installed.
+You should find the following files:
+
+picax.xml
+comps.xml
+pkglist.xml
+
+Firstly Edit the picax.xml file
+vi picax.xml
+
+Inbetween the cd-label tags insert your Distro name or whatever you wish the cd to be called – eg SGNix
+Change inst-comps to the path of your comps file eg /SGNIX/build/comps.xml
+Change inst-help-path to the path of your help directory eg /SGNix/build/anaconda-help
+
+
+Etc.
+Add repository components to include the components you wish to have installable from the cd.
+
+Eg. <repository component="games" distribution="cl" />
+And remove the one’s you no longer require.
+
+Now edit the comps file
+vi comps.xml
+
+You will need a group for every component that you specified in picax.xml.  For each component you will need to specify the modules that you wish to be available and how they are to be available.
+If you wish the component to be visible to the user in anaconda then change the uservisible tag data to true.  The default tag specifies whether or not it will be selected to be installed by default.  It is important to note the difference between the id and name tags.  Id specifies the name of the package found in your repository and nname specifies the name to be shown to the user.
+
+Mandatory?????????
+Optional????????????????
+
+
+Example snippet: 
+- <group>
+  <id>basic-desktop</id> 
+  <uservisible>true</uservisible> 
+  <default>false</default> 
+  <name>Basic Desktop</name> 
+  <description>X window system</description> 
+- <packagelist>
+  <packagereq type="mandatory">x-window-system</packagereq> 
+  </packagelist>
+  </group>
+- <group>
+
+
+
+
+Finally there’s the pkglist file
+You will probably not want to edit this, it specifies what you need at runtime for the installer – so unless you need to have some extra functions, or remove the anaconda GUI for example, I would leave it as it is.
+
+Next you will need to acquire, compile and install the lastest versions of anaconda and picax.
+
+apt-get install subversion-tools
+apt-get install anaconda picax
+cd /SGNix/work
+svn co svn://svn.progeny.com/anaconda/trunk/ anaconda
+svn co svn://svn.progeny.com/anaconda/picax/trunk picax
+this will create 2 directories – anaconda and picax.
+
+First of all go into the anaconda dir and edit constants.py
+You will find a variable called BETANAG – change the value to 0.
+
+Then you will need to compile.
+dpkg-buildpackage
+
+do the same in the picax directory
+cd ../picax; dpkg-buildpackage.
+
+
+If compilation is successful you will be left with 2 deb files in the /SGNix/work directory
+
+Copy these into the correct place in your repo
+
+cp /SGNix/work/*.deb ../dists/cl/cl-dists/binary-i386
+
+
+Building the ISO
+Move to the build directory 
+Cd /SGNux/build
+And exectute the following command
+
+Picax –build-config=picax.xml /SGNix/
+
+This should create an iso in /SGNix called img-bin01.iso, and so on, if it required further images.
+The build directories will be named /SGNix/bin1/ SGNix/bin2, and so on, if for any reason you need to rebuild the ISO’s then you will need to remove, or at least rename these directories first, otherwise picax will fail.  I would also recommened removeing any existing ISO’s to avoid confusion.

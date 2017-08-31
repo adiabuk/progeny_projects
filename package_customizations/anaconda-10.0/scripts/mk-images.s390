@@ -1,0 +1,39 @@
+prepareBootImage() {
+        dd if=/dev/zero bs=1k count=$BOOTDISKSIZE of=/$MBD_TMPIMAGE 2>/dev/null
+	mount -o loop -t msdos $MBD_TMPIMAGE $MBD_BOOTTREE
+
+	(cd $BOOTDISKDIR; find . ! -name "*.msg" -maxdepth 1 ! -type d | cpio --quiet -p $MBD_BOOTTREE)
+	
+	cp $MBD_FSIMAGE $MBD_BOOTTREE/initrd.img
+	cp $KERNELROOT/boot/vmlinuz-* $MBD_BOOTTREE/vmlinuz
+}
+
+IDEMODS=""
+SCSIMODS=""
+
+FSMODS="vfat msdos ext3 reiserfs jfs xfs"
+SECSTAGE="$IDEMODS $SCSIMODS $FSMODS md raid0 raid1 raid5 dm-mod"
+DASDMODS=" dasd_diag_mod dasd_eckd_mod dasd_fba_mod dasd_mod"
+COMMONMODULES="loop cramfs tape390 isofs $DASDMODS"
+LOCALMODULES="$COMMONMODULES tape390 $IDEMODS $SCSIMODS"
+NETWORKMODULES="$COMMONMODULES nfs ctc netiucv smsgiucv lcs qdio qeth ccwgroup"
+
+makeBootImages() {
+	makeinitrd --nobogl --initrdto $TOPDESTPATH/images/initrd.img \
+	    --initrdsize 20000 \
+	    --loaderbin loader \
+	    --modules "$NETWORKMODULES"
+	cp -vf $KERNELROOT/boot/${KERNELNAME}-${version} $TOPDESTPATH/images/kernel.img
+
+	cp -v $BOOTDISKDIR/generic.prm $TOPDESTPATH/images/generic.prm
+	cp -v $BOOTDISKDIR/generic.ins $TOPDESTPATH/generic.ins
+}
+
+makeSecondStage() {
+    makemainmodules "=scsi =net $SECSTAGE"
+
+    makeinstimage "netstg" "=scsi $SECSTAGE"
+
+    makeinstimage "hdstg" "=net $SECSTAGE"
+    makemainimage "stage2" "cramfs"
+}

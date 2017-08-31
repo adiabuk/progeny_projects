@@ -1,0 +1,15 @@
+Source: progeny-defaults
+Section: base
+Priority: optional
+Maintainer: Ian Murdock <imurdock@progeny.com>
+Build-Depends: debhelper (>= 4.0.0)
+Standards-Version: 3.6.0
+
+Package: progeny-defaults
+Architecture: all
+Depends: ${shlibs:Depends}, ${misc:Depends}, cl-tools (>= 1.4)
+Conflicts: cl-defaults
+Provides: cl-defaults
+Replaces: cl-defaults
+Description: Progeny Debian configuration defaults
+ This package contains default configuration values for Progeny Debian.

@@ -1,0 +1,9 @@
+modlist
+moddeps
+genhdlist
+mapshdr
+snarffont
+readmap
+.utils
+.depend
+

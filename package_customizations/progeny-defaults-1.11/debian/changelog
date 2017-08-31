@@ -1,0 +1,128 @@
+progeny-defaults (1.11) unstable; urgency=low
+
+  * Use archive.progeny.com rather than apt-devel.componentizedlinux.org,
+    in preparation for Release Candidate 2.
+
+ -- Ian Murdock <imurdock@progeny.com>  Thu, 10 Feb 2005 12:32:27 -0500
+
+progeny-defaults (1.10) unstable; urgency=low
+
+  * Move official sources.list.d files to /usr/share, and symlink
+    then to /etc/apt/sources.list.d.  This way, out-of-date components
+    can be removed.
+
+ -- Jeff Licquia <licquia@progeny.com>  Tue, 18 Jan 2005 15:46:10 -0500
+
+progeny-defaults (1.9) unstable; urgency=low
+
+  * Use apt-devel.componentizedlinux.org instead of archive.progeny.com,
+    in preparation for testing of Release Candidate 2.
+
+  * Replace Mozilla Firefox 1.0RC1 with 1.0.
+
+ -- Ian Murdock <imurdock@progeny.com>  Tue, 18 Jan 2005 15:02:59 -0500
+
+progeny-defaults (1.8) unstable; urgency=low
+
+  * Use archive.progeny.com rather than apt-devel.componentizedlinux.org,
+    in preparation for Release Candidate 1.
+
+  * Replace Mozilla Firefox 0.9 with 1.0RC1.
+
+ -- Ian Murdock <imurdock@progeny.com>  Mon,  8 Nov 2004 10:28:23 -0500
+
+progeny-defaults (1.7) unstable; urgency=low
+
+  * Install script to /usr/share/cl-defaults/firstboot.d that sets the
+    ALSA mixer settings to reasonable defaults at first boot after the
+    system is installed.
+
+  * Change /etc/apt/sources.list.d fragment to refer to mozilla-firefox-0.9
+    rather than mozilla-firefox-1.0.
+
+  * Lintian cleanups: Removed conffiles, as debhelper automatically marks
+    /etc files as conffiles. Also, add debhelper token to postinst script.
+
+ -- Ian Murdock <imurdock@progeny.com>  Thu, 28 Oct 2004 16:17:56 -0500
+
+progeny-defaults (1.6) unstable; urgency=low
+
+  * Use the new update-sources.list.d to construct the default
+    /etc/apt/sources.list.
+
+ -- Ian Murdock <imurdock@progeny.com>  Mon, 11 Oct 2004 17:43:18 -0500
+
+progeny-defaults (1.5) unstable; urgency=low
+
+  * Move LSB configuration into lsb-defaults package and GNOME
+    configuration into gnome-defaults package.
+
+ -- Ian Murdock <imurdock@progeny.com>  Wed,  6 Oct 2004 10:23:14 -0500
+
+progeny-defaults (1.4.2) unstable; urgency=low
+
+  * Create /usr/share/cl-defaults/diverted to hold diverted
+    files from other packages when they cannot be stored in
+    the original directories (e.g., /usr/share/applications).
+
+  * Remove the calls in the postinst to set the theme and background
+    (this is done is progeny-branding now).
+
+ -- Ian Murdock <imurdock@progeny.com>  Sat,  2 Oct 2004 22:37:08 -0500
+
+progeny-defaults (1.4.1) unstable; urgency=low
+
+  * Add Conflicts, Provides, and Replaces on cl-defaults.
+
+ -- Ian Murdock <imurdock@progeny.com>  Fri,  1 Oct 2004 12:27:14 -0500
+
+progeny-defaults (1.4) unstable; urgency=low
+
+  * Reference the new fstab-update.hal in the postinst (renamed from
+    fstab-update.sh).
+  * Set the x-www-browser and mozilla alternatives to mozilla-firefox
+    in the postinst, as Firefox should be the default browser even if
+    mozilla-browser is pulled in by a dependency.
+
+ -- Ian Murdock <imurdock@progeny.com>  Tue, 21 Sep 2004 15:27:50 -0500
+
+progeny-defaults (1.3) unstable; urgency=low
+
+  * Add dependencies for packages reconfigured in postinst.
+
+  * Create an /etc/hal/.progeny-defaults-applied, similar to the one we
+    use for udev.
+
+  * Fix bug in postinst (copy sources.list.default to sources.list, not
+    preferences).
+
+ -- Ian Murdock <imurdock@progeny.com>  Fri, 10 Sep 2004 10:44:32 -0500
+
+progeny-defaults (1.2) unstable; urgency=low
+
+  * Renamed package from cl-defaults to progeny-defaults.
+
+  * Use gconftool-2 to apply Gnome desktop defaults in postinst.
+
+  * Install default APT preferences and sources.list as
+    /etc/apt/preferences.default and /etc/apt/sources.list.default,
+    respectively and copy them into
+    place in the postinst only if these files do not already exist.
+
+  * Make /etc/apt/apt.conf.d/00cl a conffile.
+
+  * Updated default sources.list.
+
+  * Added /etc/modprobe.d/alsa-oss conffile that loads the ALSA OSS
+    compatibility module (as per udev README).
+
+  * Change udev configuration to use devfs-style layout rather than
+    "traditional" /dev layout.
+
+ -- Ian Murdock <imurdock@progeny.com>  Fri,  3 Sep 2004 16:58:44 -0500
+
+cl-defaults (1.0) unstable; urgency=low
+
+  * Initial release.
+
+ -- Ian Murdock <imurdock@progeny.com>  Sat, 14 Aug 2004 15:54:17 -0500

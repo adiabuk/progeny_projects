@@ -1,0 +1,7 @@
+# Progeny Componentized Linux:
+### begin-auto
+### end-auto
+
+# Debian sarge:
+deb http://archive.progeny.com/debian sarge main
+deb-src http://archive.progeny.com/debian sarge main

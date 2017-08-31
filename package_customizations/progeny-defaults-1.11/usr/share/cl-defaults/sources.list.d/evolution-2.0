@@ -1,0 +1,3 @@
+# Evolution 2.0:
+deb http://archive.progeny.com/progeny/linux/debian cl evolution-2.0
+deb-src http://archive.progeny.com/progeny/linux/debian cl evolution-2.0

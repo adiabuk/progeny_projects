@@ -1,0 +1,3 @@
+# Kerberos client support:
+deb http://archive.progeny.com/progeny/linux/debian cl kerberos
+deb-src http://archive.progeny.com/progeny/linux/debian cl kerberos

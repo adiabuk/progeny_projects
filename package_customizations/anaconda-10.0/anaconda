@@ -1,0 +1,1137 @@
+#!/usr/bin/python
+#
+# anaconda: The Red Hat Linux Installation program
+#
+# (in alphabetical order...)
+#
+# Brent Fox <bfox@redhat.com>
+# Mike Fulbright <msf@redhat.com>
+# Jakub Jelinek <jakub@redhat.com>
+# Jeremy Katz <katzj@redhat.com>
+# Erik Troan <ewt@redhat.com>
+# Matt Wilson <msw@redhat.com>
+#
+# ... And many others
+#
+# Copyright 1999-2004 Red Hat, Inc.
+#
+# This software may be freely redistributed under the terms of the GNU
+# library public license.
+#
+# You should have received a copy of the GNU Library Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+#
+
+# This toplevel file is a little messy at the moment...
+
+import sys, os
+
+# keep up with process ID of miniwm if we start it
+
+miniwm_pid = None
+# helper function to duplicate diagnostic output
+def dup_log(format, *args):
+    if args:
+	sys.stdout.write ("%s\n" % (format % args))
+    else:
+	sys.stdout.write ("%s\n" % format)
+    apply(log, (format,) +  args)
+
+# start miniWM
+def startMiniWM(root='/'):
+    childpid = os.fork()
+    if not childpid:
+        if os.access("./mini-wm", os.X_OK):
+            cmd = "./mini-wm"
+        elif os.access(root + "/usr/bin/mini-wm", os.X_OK):
+            cmd = root + "/usr/bin/mini-wm"
+        else:
+            return None
+        
+	args = [cmd, '--display', ':1']
+	os.execv(args[0], args)
+	sys.exit (1)
+
+    return childpid
+
+# startup vnc X server
+def startVNCServer(vncpassword=None, root='/', vncconnecthost=None,
+		   vncconnectport=None):
+    
+    def set_vnc_password(root, passwd, passwd_file):
+	(pid, fd) = os.forkpty()
+
+	if not pid:
+	    os.execv(root + "/usr/bin/vncpasswd", [root + "/usr/bin/vncpasswd", passwd_file])
+	    sys.exit(1)
+
+	# read password prompt
+	os.read(fd, 1000)
+
+	# write password
+	os.write(fd, passwd + "\n")
+
+	# read challenge again, and newline
+	os.read(fd, 1000)
+	os.read(fd, 1000)
+
+	# write password again
+	os.write(fd, passwd + "\n")
+
+	# read remaining output
+	os.read(fd, 1000)
+
+	# wait for status
+	try:
+	    (pid, status) = os.waitpid(pid, 0)
+	except OSError, (errno, msg):
+	    print __name__, "waitpid:", msg
+
+	return status
+
+
+    dup_log(_("Starting VNC..."))
+
+    # figure out host info
+    connxinfo = None
+    srvname = None
+    try:
+	import network
+
+	# try to load /tmp/netinfo and see if we can sniff out network info
+	netinfo = network.Network()
+	srvname = None
+	if netinfo.hostname != "localhost.localdomain":
+	    srvname = "%s" % (netinfo.hostname,)
+	else:
+	    for dev in netinfo.netdevices.keys():
+		try:
+                    ip = isys.getIPAddress(dev)
+                    log("ip of %s is %s" %(dev, ip))
+		except Exception, e:
+                    log("Got an exception trying to get the ip addr of %s: "
+                        "%s" %(dev, e))
+		    continue
+		if ip == '127.0.0.1' or ip is None:
+		    continue
+		srvname = ip
+		break
+
+	if srvname is not None:
+	    connxinfo = "%s:1" % (srvname,)
+
+    except:
+	log("Unable to determine VNC server network info")
+	
+    # figure out product info
+    if srvname is not None:
+	desktopname = _("%s %s installation on host %s") % (product.productName, product.productVersion, srvname)
+    else:
+	desktopname = _("%s %s installation") % (product.productName, product.productVersion)
+
+    vncpid = os.fork()
+
+    if not vncpid:
+	args = [ root + "/usr/bin/Xvnc", ":1", "-nevershared",
+		 "-depth", "16", "-geometry", "800x600",
+		 "IdleTimeout=0", "-auth", "/dev/null"
+		 "DisconnectClients=false", "desktop=%s" % (desktopname,)]
+
+	# set passwd if necessary
+	if vncpassword is not None:
+	    try:
+		rc = set_vnc_password(root, vncpassword, "/tmp/vncpasswd_file")
+	    except Exception, e:
+		dup_log("Unknown exception setting vnc password.")
+                log("Exception was: %s" %(e,))
+		rc = 1
+
+	    if rc:
+		dup_log(_("Unable to set vnc password - using no password!"))
+		dup_log(_("Make sure your password is at least 6 characters in length."))
+	    else:
+		args = args + ["-rfbauth", "/tmp/vncpasswd_file"]
+	else:
+	    # needed if no password specified
+	    args = args + ["SecurityTypes=None",]
+			     
+	tmplogFile = "/tmp/vncserver.log"
+	try:
+	    err = os.open(tmplogFile, os.O_RDWR | os.O_CREAT)
+	    if err < 0:
+		sys.stderr.write("error opening %s\n", tmplogFile)
+	    else:
+		os.dup2(err, 2)
+		os.close(err)
+	except:
+	    # oh well
+	    pass
+
+	os.execv(args[0], args)
+	sys.exit (1)
+
+    if vncpassword is None:
+	dup_log(_("\n\nWARNING!!! VNC server running with NO PASSWORD!\n"
+                  "You can use the vncpassword=<password> boot option\n"
+                  "if you would like to secure the server.\n\n"))
+	
+    dup_log(_("The VNC server is now running."))
+
+    if vncconnecthost is not None:
+	dup_log(_("Attempting to connect to vnc client on host %s...") % (vncconnecthost,))
+	
+	hostarg = vncconnecthost
+	if vncconnectport is not None:
+	    hostarg = hostarg + ":" + vncconnectport
+	    
+	argv = ["/usr/bin/vncconfig", "-display", ":1", "-connect", hostarg]
+	ntries = 0
+	while 1:
+	    output=iutil.execWithCapture(argv[0], argv, catchfd=2)
+	    outfields = string.split(string.strip(output), ' ')
+	    if outfields[0] == "connecting" and outfields[-1] == "failed":
+		ntries += 1
+		if ntries > 50:
+		    dup_log(_("Giving up attempting to connect after 50 tries!\n"))
+		    if connxinfo is not None:
+			dup_log(_("Please manually connect your vnc client to %s to begin the install.") % (connxinfo,))
+		    else:	    
+			dup_log(_("Please manually connect your vnc client to begin the install."))
+		    break
+		    
+		dup_log(output)
+		dup_log(_("Will try to connect again in 15 seconds..."))
+		time.sleep(15)
+		continue
+	    else:
+		dup_log(_("Connected!"))
+		break
+    else:
+	if connxinfo is not None:
+	    dup_log(_("Please connect to %s to begin the install...") % (connxinfo,))
+	else:
+	    dup_log(_("Please connect to begin the install..."))
+
+    os.environ["DISPLAY"]=":1"
+    doStartupX11Actions()
+
+# function to handle X startup special issues for anaconda
+def doStartupX11Actions():
+    global miniwm_pid
+
+    # now start up mini-wm
+    try:
+	miniwm_pid = startMiniWM()
+	log("Started mini-wm")
+    except:
+	miniwm_pid = None
+	log("Unable to start mini-wm")
+
+    # test to setup dpi
+    # cant do this if miniwm didnt run because otherwise when
+    # we open and close an X connection in the xutils calls
+    # the X server will exit since this is the first X
+    # connection (if miniwm isnt running)
+    if miniwm_pid is not None:
+	import xutils
+
+	try:
+	    if xutils.screenWidth() > 640:
+		dpi = "96"
+	    else:
+		dpi = "75"
+
+
+	    xutils.setRootResource('Xcursor.size', '24')
+	    xutils.setRootResource('Xcursor.theme', 'Bluecurve')
+	    xutils.setRootResource('Xcursor.theme_core', 'true')
+
+	    xutils.setRootResource('Xft.antialias', '1')
+	    xutils.setRootResource('Xft.dpi', dpi)
+	    xutils.setRootResource('Xft.hinting', '1')
+	    xutils.setRootResource('Xft.hintstyle', 'hintslight')
+	    xutils.setRootResource('Xft.rgba', 'none')
+	except:
+	    sys.stderr.write("X SERVER STARTED, THEN FAILED");
+	    raise RuntimeError, "X server failed to start"
+
+def doShutdownX11Actions():
+    global miniwm_pid
+    
+    if miniwm_pid is not None:
+	try:
+	    os.kill(miniwm_pid, 15)
+	    os.waitpid(miniwm_pid, 0)
+	except:
+	    pass
+
+
+def setupRhplUpdates():
+    import glob
+
+    # get the python version.  first of /usr/lib/python*, strip off the
+    # first 15 chars
+    pyvers = glob.glob("/usr/lib/python*")
+    pyver = pyvers[0][15:]
+    
+    try:
+        os.mkdir("/tmp/updates")
+    except:
+        pass
+    try:
+        os.mkdir("/tmp/updates/rhpl")
+    except:
+        pass
+    if os.access("/mnt/source/RHupdates/rhpl", os.X_OK):
+        for f in os.listdir("/mnt/source/RHupdates/rhpl"):
+            os.symlink("/mnt/source/RHupdates/rhpl/%s" %(f,),
+                       "/tmp/updates/rhpl/%s" %(f,))
+
+    if os.access("/usr/lib64/python%s/site-packages/rhpl" %(pyver,), os.X_OK):
+        libdir = "lib64"
+    else:
+        libdir = "lib"
+            
+    for f in os.listdir("/usr/%s/python%s/site-packages/rhpl" %(libdir,pyver)):
+        if os.access("/tmp/updates/rhpl/%s" %(f,), os.R_OK):
+            continue
+        elif f.endswith(".pyc") and os.access("/tmp/updates/rhpl/%s" %(f[:-1],), os.R_OK):
+            # dont copy .pyc files we are replacing with updates
+            continue
+        
+        os.symlink("/usr/%s/python%s/site-packages/rhpl/%s" %(libdir, pyver,f),
+                   "/tmp/updates/rhpl/%s" %(f,))
+    
+# For anaconda in test mode
+if (os.path.exists('isys')):
+    sys.path.append('isys')
+    sys.path.append('textw')
+    sys.path.append('iw')
+else:
+    sys.path.append('/usr/lib/anaconda')
+    sys.path.append('/usr/lib/anaconda/textw')
+    sys.path.append('/usr/lib/anaconda/iw')
+
+if (os.path.exists('booty')):
+    sys.path.append('booty')
+    sys.path.append('booty/edd')
+else:
+    sys.path.append('/usr/lib/booty')
+
+sys.path.append('/usr/share/system-config-keyboard')
+
+try:
+    import updates_disk_hook
+except ImportError:
+    pass
+
+# pull this in to get product name and versioning
+import product
+
+# do this early to keep our import footprint as small as possible
+# Python passed my path as argv[0]!
+# if sys.argv[0][-7:] == "syslogd":
+if len(sys.argv) > 1:
+    if sys.argv[1] == "--syslogd":
+        from syslogd import Syslogd
+        root = sys.argv[2]
+        output = sys.argv[3]
+        syslog = Syslogd (root, open (output, "a"))
+	# this never returns
+
+# this handles setting up RHupdates for rhpl to minimize the set needed
+if (os.access("/mnt/source/RHupdates/rhpl", os.X_OK) or
+    os.access("/tmp/updates/rhpl", os.X_OK)):
+    setupRhplUpdates()
+
+import signal, traceback, string, isys, iutil, time
+
+from exception import handleException
+import dispatch
+from flags import flags
+from anaconda_log import anaconda_log
+
+from rhpl.log import log
+from rhpl.translate import _, textdomain, addPoPath
+
+if os.path.isdir("/mnt/source/RHupdates/po"):
+    log("adding RHupdates/po")
+    addPoPath("/mnt/source/RHupdates/po")
+if os.path.isdir("/tmp/updates/po"):
+    log("adding /tmp/updates/po")    
+    addPoPath("/tmp/updates/po")
+textdomain("anaconda")
+
+# reset python's default SIGINT handler
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+# Silly GNOME stuff
+if os.environ.has_key('HOME') and not os.environ.has_key("XAUTHORITY"):
+    os.environ['XAUTHORITY'] = os.environ['HOME'] + '/.Xauthority'
+os.environ['HOME'] = '/tmp'
+os.environ['LC_NUMERIC'] = 'C'
+os.environ["GCONF_GLOBAL_LOCKS"] = "1"
+
+if os.environ.has_key ("ANACONDAARGS"):
+    theargs = string.split (os.environ["ANACONDAARGS"])
+else:
+    theargs = sys.argv[1:]
+
+# we can't let the LD_PRELOAD hang around because it will leak into
+# rpm %post and the like.  ick :/
+if os.environ.has_key("LD_PRELOAD"):
+    del os.environ["LD_PRELOAD"]
+
+# we need to do this really early so we make sure its done before rpm
+# is imported
+iutil.writeRpmPlatform()
+
+try:
+    (args, extra) = isys.getopt(theargs, 'CGTRxtdr:fm:', 
+          [ 'graphical', 'text', 'test', 'debug', 'nofallback',
+            'method=', 'rootpath=', 'pcic=', "overhead=",
+	    'testpath=', 'mountfs', 'traceonly', 'kickstart=',
+            'lang=', 'keymap=', 'kbdtype=', 'module=', 'class=',
+	    'expert', 'serial', 'lowres', 'nofb', 'rescue', 'nomount',
+            'autostep', 'resolution=', 'skipddc', 'noselinux', 'selinux',
+	    'vnc', 'vncconnect=', 'cmdline', 'headless'])
+except TypeError, msg:
+    sys.stderr.write("Error %s\n:" % msg)
+    sys.exit(-1)
+
+if extra:
+    sys.stderr.write("Unexpected arguments: %s\n" % extra)
+    sys.exit(-1)
+
+# Save the arguments in case we need to reexec anaconda for kon
+os.environ["ANACONDAARGS"] = string.join(sys.argv[1:])
+
+# remove the arguments - gnome_init doesn't understand them
+savedargs = sys.argv[1:]
+sys.argv = sys.argv[:1]
+sys.argc = 1
+
+# Parameters for the main anaconda routine
+#
+rootPath = '/mnt/sysimage'	# where to instal packages
+extraModules = []		# kernel modules to use
+debug = 0			# start up pdb immediately
+traceOnly = 0			# don't run, just list modules we use
+nofallback = 0			# if GUI mode fails, exit
+rescue = 0			# run in rescue mode
+rescue_nomount = 0		# don't automatically mount device in rescue
+runres = '800x600'		# resolution to run the GUI install in
+runres_override = 0             # was run resolution overridden by user?
+skipddc = 0			# if true skip ddcprobe (locks some machines)
+instClass = None		# the install class to use
+progmode = 'install' 		# 'rescue', or 'install'
+method = None			# URL representation of install method
+logFile = None			# may be a file object or a file name
+display_mode = None
+
+
+# should we ever try to probe for X stuff?  this will give us a convenient
+# out eventually to circumvent all probing and just fall back to text mode
+# on hardware where we break things if we probe
+isHeadless = 0
+
+# probing for hardware on an s390 seems silly...
+if iutil.getArch() == "s390":
+    isHeadless = 1
+
+#
+# xcfg       - xserver info (?)
+# mousehw    - mouseinfo info
+# videohw    - videocard info
+# monitorhw  - monitor info
+# lang       - language to use for install/machine default
+# keymap     - kbd map
+#
+xcfg = None
+monitorhw = None
+videohw = None
+mousehw = None
+lang = None
+method = None
+keymap = None
+kbdtype = None
+progmode = None
+customClass = None
+kbd = None
+ksfile = None
+vncpassword = None
+vncconnecthost = None
+vncconnectport = None
+
+#
+# parse off command line arguments
+#
+for n in args:
+    (str, arg) = n
+
+    if (str == '--class'):
+        customClass = arg
+    elif (str == '-d' or str == '--debug'):
+	debug = 1
+    elif (str == '--expert'):
+	flags.expert = 1 
+    elif (str == '--graphical'):
+	display_mode = 'g'
+    elif (str == '--keymap'):
+        keymap = arg
+    elif (str == '--kickstart'):
+	from kickstart import Kickstart
+	ksfile = arg
+        instClass = Kickstart(ksfile, flags.serial)
+    elif (str == '--lang'):
+        lang = arg
+    elif (str == '--lowres'):
+        runres = '640x480'
+    elif (str == '-m' or str == '--method'):
+	method = arg
+	if method[0] == '@':
+	    # ftp installs pass the password via a file in /tmp so
+	    # ps doesn't show it
+	    filename = method[1:]
+	    method = open(filename, "r").readline()
+	    method = method[:len(method) - 1]
+	    os.unlink(filename)
+    elif (str == '--module'):
+	(path, name) = string.split(arg, ":")
+	extraModules.append((path, name))
+    elif (str == '--nofallback'):
+	nofallback = 1
+    elif (str == "--nomount"):
+        rescue_nomount = 1
+    elif (str == '--rescue'):
+        progmode = 'rescue'
+    elif (str == '--resolution'):
+        # run native X server at specified resolution, ignore fb
+        runres = arg
+	runres_override = 1
+    elif (str == '--noselinux'):
+        flags.selinux = 0
+    elif (str == '--selinux'):
+        flags.selinux = 1
+    elif (str == "--skipddc"):	
+	skipddc = 1
+    elif (str == "--autostep"):
+	flags.autostep = 1
+    elif (str == '-r' or str == '--rootpath'):
+	rootPath = arg
+	flags.setupFilesystems = 0
+	logFile = sys.stderr
+    elif (str == '--traceonly'):
+	traceOnly = 1
+    elif (str == '--serial'):
+	flags.serial = 1
+    elif (str == '-t' or str == '--test'):
+	flags.test = 1
+	flags.setupFilesystems = 0
+	logFile = "/tmp/anaconda-debug.log"
+    elif (str == '-T' or str == '--text'):
+        display_mode = 't'
+    elif (str == "-C" or str == "--cmdline"):
+        display_mode = 'c'
+    elif (str == '--kbdtype'):
+        kbdtype = arg
+    elif (str == '--headless'):
+        isHeadless = 1
+    elif (str == '--vnc'):
+	flags.usevnc = 1
+
+	# see if there is a vnc password file
+	try:
+	    pfile = open("/tmp/vncpassword.dat", "r")
+	    vncpassword=pfile.readline().strip()
+	    pfile.close()
+	    os.unlink("/tmp/vncpassword.dat")
+	except:
+	    vncpassword=None
+	    pass
+
+	# check length of vnc password	
+	if vncpassword is not None and len(vncpassword) < 6:
+	    from snack import *
+	    
+	    screen = SnackScreen()
+	    ButtonChoiceWindow(screen, _('VNC Password Error'),
+				_('You need to specify a vnc password of at least 6 characters long.\n\n'
+				  'Press <return> to reboot your system.\n'), 
+				  buttons = (_("OK"),))
+	    screen.finish()
+	    sys.exit(0)
+    elif (str == '--vncconnect'):
+	cargs = string.split(arg, ":")
+	vncconnecthost = cargs[0]
+	if len(cargs) > 1:
+	    if len(cargs[1]) > 0:
+		vncconnectport = cargs[1]
+
+# set up anaconda logging
+anaconda_log.open (logFile)
+log.handler=anaconda_log
+    
+#
+# must specify install, rescue mode
+#
+
+if (progmode == 'rescue'):
+    if (not method):
+	sys.stderr.write('--method required for rescue mode\n')
+	sys.exit(1)
+
+    import rescue, instdata, configFileData
+    
+    configFile = configFileData.configFileData()
+    configFileData = configFile.getConfigData()
+    
+    id = instdata.InstallData([], "fd0", configFileData, method)
+    rescue.runRescue(rootPath, not rescue_nomount, id)
+
+    # shouldn't get back here
+    sys.exit(1)
+else:
+    if (not method):
+	sys.stderr.write('no install method specified\n')
+	sys.exit(1)
+
+#
+# Here we have a hook to pull in second half of kickstart file via https
+# if desired.
+#
+if ksfile is not None:
+    from kickstart import pullRemainingKickstartConfig, KSAppendException
+    from kickstart import parseKickstartVNC
+
+    try:
+	rc=pullRemainingKickstartConfig(ksfile)
+    except KSAppendException, msg:
+	rc = msg
+    except:
+	rc = _("Unknown Error")
+
+    if rc is not None:
+	dup_log(_("Error pulling second part of kickstart config: %s!") % (rc,))
+	sys.exit(1)
+
+    # now see if they enabled vnc via the kickstart file. Note that command
+    # line options for password, connect host and port override values in
+    # kickstart file
+    (ksusevnc, ksvncpasswd, ksvnchost, ksvncport) = parseKickstartVNC(ksfile)
+
+    if ksusevnc:
+	flags.usevnc = 1
+
+	if vncpassword == None:
+	    vncpassword = ksvncpasswd
+
+	if vncconnecthost == None:
+	    vncconnecthost = ksvnchost
+
+	if vncconnectport == None:
+	    vncconnectport = ksvncport
+
+#
+# Determine install method - GUI or TUI
+#
+# use GUI by default except for install methods that were traditionally
+# text based due to the requirement of a small stage 2
+#
+# if display_mode wasnt set by command line parameters then set default
+#
+
+if display_mode is None:
+    if (method and
+	method.startswith('ftp://') or
+	method.startswith('http://')):
+	display_mode = 't'
+    else:
+	display_mode = 'g'
+
+if (debug):
+    import pdb
+    pdb.set_trace()
+
+# let people be stupid
+## # don't let folks do anything stupid on !s390
+## if (not flags.test and os.getpid() > 90 and flags.setupFilesystems and
+##     not iutil.getArch() == "s390"):
+##     sys.stderr.write(
+##         "You're running me on a live system! that's incredibly stupid.\n")
+##     sys.exit(1)
+
+import isys
+import instdata
+import floppy
+
+if not isHeadless:
+    import xsetup
+    import rhpl.xhwstate as xhwstate
+import rhpl.keyboard as keyboard
+
+# handle traceonly and exit
+if traceOnly:
+
+    if display_mode == 'g':
+        sys.stderr.write("traceonly is only supported for text mode\n")
+        sys.exit(0)
+    
+    # prints a list of all the modules imported
+    from text import InstallInterface
+    from text import stepToClasses
+    import pdb
+    import warnings
+    import image
+    import harddrive
+    import urlinstall
+    import mimetools
+    import mimetypes
+    import syslogd
+    import installclass
+    import re
+    import rescue
+    import configFileData
+    import kickstart
+    import whiteout
+    import findpackageset
+    import libxml2
+    import cmdline
+    import encodings.utf_8
+
+    installclass.availableClasses()
+
+    if display_mode == 't':
+        for step in stepToClasses.keys():
+            if stepToClasses[step]:
+                (mod, klass) = stepToClasses[step]
+                exec "import %s" % mod
+        
+    for module in sys.__dict__['modules'].keys ():
+        if module not in [ "__builtin__", "__main__" ]:
+            foo = repr (sys.__dict__['modules'][module])
+            bar = string.split (foo, "'")
+            if len (bar) > 3:
+                print bar[3]
+        
+    sys.exit(0)
+
+log("Display mode = %s", display_mode)
+log("Method = %s", method)
+
+#
+# override display mode if machine cannot nicely run X
+#
+if (not flags.test):
+    if (iutil.memInstalled() < isys.MIN_GUI_RAM):
+	dup_log(_("You do not have enough RAM to use the graphical "
+		  "installer.  Starting text mode."))
+	display_mode = 't'
+        time.sleep(2)
+
+
+if iutil.memInstalled() < isys.MIN_RAM:
+    from snack import *
+
+    screen = SnackScreen()
+    ButtonChoiceWindow(screen, _('Fatal Error'),
+			_('You do not have enough RAM to install Red Hat '
+			  'Linux on this machine.\n'
+			  '\n'
+			  'Press <return> to reboot your system.\n'), 
+			  buttons = (_("OK"),))
+    screen.finish()
+    sys.exit(0)
+
+#
+# handle class passed from loader
+#
+if customClass:
+    import installclass
+
+    classes = installclass.availableClasses(showHidden=1)
+    for (className, objectClass, logo) in classes:
+	if className == customClass:
+		instClass = objectClass(flags.expert)
+
+    if not instClass:
+	sys.stderr.write("installation class %s not available\n" % customClass)
+	sys.stderr.write("\navailable classes:\n")
+	for (className, objectClass, logo) in classes:
+	    sys.stderr.write("\t%s\n" % className)
+	sys.exit(1)
+
+#
+# if no instClass declared by user figure it out based on other cmdline args
+#
+if not instClass:
+    from installclass import DefaultInstall, availableClasses
+    instClass = DefaultInstall(flags.expert)
+
+    if len(availableClasses(showHidden = 1)) < 2:
+        (cname, cobject, clogo) = availableClasses(showHidden = 1)[0]
+        log("%s is only installclass, using it" %(cname,))
+        instClass = cobject(flags.expert)
+        
+
+# this lets install classes force text mode instlls
+if instClass.forceTextMode:
+    dup_log(_("Install class forcing text mode installation"))
+    display_mode = 't'
+
+#
+# find out what video hardware is available to run installer 
+#
+
+# XXX kind of hacky - need to remember if we're running on an existing
+#                     X display later to avoid some initilization steps
+if os.environ.has_key('DISPLAY') and display_mode == 'g':
+    x_already_set = 1
+else:
+    x_already_set = 0
+
+if not isHeadless:
+    #
+    # Probe what is available for X and setup a hardware state
+    #
+    # try to probe interesting hw
+    import rhpl.xserver as xserver
+    skipddcprobe = (skipddc or (x_already_set and flags.test))
+    skipmouseprobe = not (not os.environ.has_key('DISPLAY') or flags.setupFilesystems)
+
+    (videohw, monitorhw, mousehw) = xserver.probeHW(skipDDCProbe=skipddcprobe,
+                                                    skipMouseProbe = skipmouseprobe)
+    # if the len(videocards) is zero, then let's assume we're isHeadless
+    if len(videohw.videocards) == 0:
+        print _("No video hardware found, assuming headless")
+        videohw = None
+        monitorhw = None
+        mousehw = None
+        isHeadless = 1
+    else:
+        # setup a X hw state for use later with configuration.  
+        try:
+            xcfg = xhwstate.XF86HardwareState(defcard=videohw,
+                                              defmon=monitorhw)
+        except Exception, e:
+            print _("Unable to instantiate a X hardware state object.")
+            xcfg = None
+else:
+    videohw = None
+    monitorhw = None
+    mousehw = None
+    xcfg = None
+
+# keyboard
+kbd = keyboard.Keyboard()
+if keymap:
+    kbd.set(keymap)
+
+#
+# delay to let use see status of attempt to probe hw 
+#
+time.sleep(3)
+
+
+#
+# now determine if we're going to run in GUI or TUI mode
+#
+# if no X server, we have to use text mode
+if not flags.test and not os.access("/mnt/runtime/usr/X11R6/bin/Xorg", os.X_OK):
+     dup_log(_("Graphical installation not available...  "
+              "Starting text mode."))
+     time.sleep(2)
+     display_mode = 't'
+
+if not isHeadless:
+    # if no mouse we force text mode
+    mousedev = mousehw.get()
+    if ksfile is None and not flags.usevnc and display_mode == 'g' and mousedev[0] == "No - mouse":
+        # ask for the mouse type
+	import rhpl.mouse as mouse
+
+	while 1:
+	    mouserc = mouse.mouseWindow(mousehw)
+	    if mouserc == 0:
+		dup_log(_("No mouse was detected.  A mouse is required for "
+			  "graphical installation.  Starting text mode."))
+		display_mode = 't'
+		time.sleep(2)
+		break
+	    elif mouserc == -1:
+		# rescan
+		mousehw.probe()
+		mousedev = mousehw.get()
+		if mousedev[0] != "No - mouse":
+		    dup_log(_("Detected mouse type: %s"), mousehw.shortDescription())
+		    time.sleep(5)
+		    break
+	    else:
+		dup_log(_("Using mouse type: %s"), mousehw.shortDescription())
+		break
+
+	    
+else: # s390/iSeries checks
+    if display_mode == 'g' and not (os.environ.has_key('DISPLAY') or
+                                    flags.usevnc):
+	dup_log("DISPLAY variable not set. Starting text mode!")
+        display_mode = 't'
+        time.sleep(2)
+
+# if they want us to use VNC do that now
+if display_mode == 'g' and flags.usevnc:
+    # dont run vncpassword if in test mode
+    if flags.test:
+	vncpassword = None
+	
+    startVNCServer(vncpassword=vncpassword,
+		   vncconnecthost=vncconnecthost,
+		   vncconnectport=vncconnectport)
+
+# if DISPLAY not set either vnc server failed to start or we're not
+# running on a redirected X display, so start local X server
+if display_mode == 'g' and not os.environ.has_key('DISPLAY'):
+    import rhpl.monitor as monitor
+    
+    # if no monitor probed lets guess based on runres
+    hsync = monitorhw.getMonitorHorizSync()
+    vsync = monitorhw.getMonitorVertSync()
+    res_supported = monitor.monitor_supports_mode(hsync, vsync,  runres)
+    
+    if not res_supported:
+	import rhpl.guesslcd as guesslcd
+
+	# pick a monitor spec that is adequate for requested runres
+	(hsync, vsync) = guesslcd.getSyncForRes(runres)
+	monitorhw.setSpecs(hsync, vsync)
+
+	# recreate X config object
+	xcfg = xhwstate.XF86HardwareState(defcard=videohw,
+					  defmon=monitorhw)
+	xcfg.set_resolution(runres)
+	
+    # make sure we can write log to ramfs
+    if os.access("/tmp/ramfs", os.W_OK):
+	xlogfile = "/tmp/ramfs/X.log"
+    else:
+	xlogfile = None
+	
+    xsetup_failed = xserver.startXServer(videohw, monitorhw, mousehw, kbd,
+					 runres,
+					 xStartedCB=doStartupX11Actions,
+					 xQuitCB=doShutdownX11Actions,
+					 logfile=xlogfile)
+
+    if xsetup_failed:
+	dup_log(" X startup failed, falling back to text mode")
+	display_mode = 't'
+	time.sleep(2)
+
+#
+# read in anaconda configuration file
+#
+import configFileData
+configFile = configFileData.configFileData()
+configFileData = configFile.getConfigData()
+
+# setup links required for all install types
+for i in ( "services", "protocol", "nsswitch.conf", "joe", "security"):
+    try:
+        os.symlink ("../mnt/runtime/etc/" + i, "/etc/" + i)
+    except:
+        pass
+
+#
+# setup links required by graphical mode if installing and verify display mode
+#
+if (display_mode == 'g'):
+    if not flags.test and flags.setupFilesystems:
+        for i in ( "imrc", "im_palette.pal", "gtk-2.0", "pango", "fonts",
+                   "fb.modes"):
+            try:
+                if os.path.exists("/mnt/runtime/etc/%s" %(i,)):
+                    os.symlink ("../mnt/runtime/etc/" + i, "/etc/" + i)
+            except:
+                pass
+
+    # display splash screen
+
+    if nofallback:
+	from splashscreen import splashScreenShow
+	splashScreenShow(configFileData)
+	
+        from gui import InstallInterface
+    else:
+        try:
+	    from splashscreen import splashScreenShow
+	    splashScreenShow(configFileData)
+	    
+            from gui import InstallInterface
+        except Exception, e:
+            # if we're not going to really go into GUI mode, we need to get
+            # back to vc1 where the text install is going to pop up.
+	    if not x_already_set:
+                isys.vtActivate (1)
+            dup_log("GUI installer startup failed, falling back to text mode.")
+            display_mode = 't'
+	    if 'DISPLAY' in os.environ.keys():
+		del os.environ['DISPLAY']
+            time.sleep(2)            
+
+if (display_mode == 't'):
+    from text import InstallInterface
+
+if (display_mode == 'c'):
+    from cmdline import InstallInterface
+
+
+# go ahead and set up the interface
+intf = InstallInterface ()
+
+# imports after setting up the path
+if method:
+    if method.startswith('cdrom://'):
+        from image import CdromInstallMethod
+        methodobj = CdromInstallMethod(method[8:], intf.messageWindow,
+				    intf.progressWindow, rootPath)
+    elif method.startswith('nfs:/'):
+        from image import NfsInstallMethod
+        methodobj = NfsInstallMethod(method[5:], rootPath)
+    elif method.startswith('nfsiso:/'):
+        from image import NfsIsoInstallMethod
+        methodobj = NfsIsoInstallMethod(method[8:], intf.messageWindow, rootPath)
+    elif method.startswith('ftp://') or method.startswith('http://'):
+        from urlinstall import UrlInstallMethod
+        methodobj = UrlInstallMethod(method, rootPath)
+	methodobj.setIntf(intf)
+    elif method.startswith('hd://'):
+        tmpmethod = method[5:]
+
+        i = string.index(tmpmethod, ":")
+        drive = tmpmethod[0:i]
+        tmpmethod = tmpmethod[i+1:]
+        
+        i = string.index(tmpmethod, "/")
+        type = tmpmethod[0:i]
+        dir = tmpmethod[i+1:]
+
+        from harddrive import HardDriveInstallMethod
+        methodobj = HardDriveInstallMethod(drive, type, dir, intf.messageWindow,
+                                        rootPath)
+    elif method.startswith('oldhd://'):
+        tmpmethod = method[8:]
+
+        i = string.index(tmpmethod, ":")
+        drive = tmpmethod[0:i]
+        tmpmethod = tmpmethod[i+1:]
+        
+        i = string.index(tmpmethod, "/")
+        type = tmpmethod[0:i]
+        dir = tmpmethod[i+1:]
+        
+        from harddrive import OldHardDriveInstallMethod
+        methodobj = OldHardDriveInstallMethod(drive, type, dir, rootPath)
+    else:
+        print "unknown install method:", method
+        sys.exit(1)
+
+floppyDevice = floppy.probeFloppyDevice()
+
+# create device nodes for detected devices if we're not running in test mode
+if not flags.test and flags.setupFilesystems:
+    iutil.makeDriveDeviceNodes()
+
+id = instClass.installDataClass(extraModules, floppyDevice, configFileData, method)
+
+id.x_already_set = x_already_set
+
+if mousehw:
+    id.setMouse(mousehw)
+
+if videohw:
+    id.setVideoCard(videohw)
+
+if monitorhw:
+    id.setMonitor(monitorhw)
+
+#
+# not sure what to do here - somehow we didnt detect anything
+#
+if xcfg is None and not isHeadless:
+    try:
+	xcfg = xhwstate.XF86HardwareState()
+    except Exception, e:
+	print _("Unable to instantiate a X hardware state object.")
+	xcfg = None
+
+if xcfg is not None:
+    #
+    # XXX - hack - here we want to enforce frame buffer requirement on ppc
+    #       pick 640x480x8bpp cause that is what frame buffer inits to
+    #       when the machine reboots
+    if iutil.getArch() == "ppc":
+	cardname = "Framebuffer driver (generic)"
+	xcfg.set_videocard_card(cardname)
+	xcfg.set_videocard_name(cardname)
+	xcfg.set_colordepth(8)
+	xcfg.set_resolution("640x480")
+	
+    xsetup = xsetup.XSetup(xcfg)
+
+    # HACK - if user overrides resolution then use it and disable
+    #	     choosing a sane default for them
+    if runres_override:
+	xsetup.imposed_sane_default = 1
+	
+    id.setXSetup(xsetup)
+
+if kbd:
+    id.setKeyboard(kbd)
+
+instClass.setInstallData(id)
+
+dispatch = dispatch.Dispatcher(intf, id, methodobj, rootPath)
+
+if lang:
+    dispatch.skipStep("language", permanent = 1)
+    instClass.setLanguage(id, lang)
+            
+if keymap:
+    dispatch.skipStep("keyboard", permanent = 1)
+    instClass.setKeyboard(id, keymap)
+
+# set up the headless case
+if isHeadless == 1:
+    id.setHeadless(isHeadless)
+    instClass.setAsHeadless(dispatch, isHeadless)
+
+instClass.setSteps(dispatch)
+
+# We shouldn't need this again
+# XXX
+#del id
+
+#
+# XXX This is surely broken
+#
+#if iutil.getArch() == "sparc":
+#    import kudzu
+#    mice = kudzu.probe (kudzu.CLASS_MOUSE, kudzu.BUS_UNSPEC, kudzu.PROBE_ONE);
+#    if mice:
+#	(mouseDev, driver, descr) = mice[0]
+#	if mouseDev == 'sunmouse':
+#	    instClass.addToSkipList("mouse")
+#	    instClass.setMouseType("Sun - Mouse", "sunmouse")
+
+# comment out the next line to make exceptions non-fatal
+sys.excepthook = lambda type, value, tb, dispatch=dispatch, intf=intf: handleException(dispatch, intf, (type, value, tb))
+
+try:
+    intf.run(id, dispatch, configFileData)
+except SystemExit, code:
+    intf.shutdown()
+except:
+    handleException(dispatch, intf, sys.exc_info())
+
+del intf

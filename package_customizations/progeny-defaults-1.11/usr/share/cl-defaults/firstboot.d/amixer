@@ -1,0 +1,13 @@
+#! /bin/sh
+#
+# Set ALSA mixer settings to reasonable default values.
+
+amixer set Master on
+amixer set Master 50%
+amixer set PCM on
+amixer set PCM 80%
+
+amixer set Master on
+amixer set Master 50%
+amixer set PCM on
+amixer set PCM 80%

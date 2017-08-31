@@ -1,0 +1,70 @@
+Linux Install CD
+
+We are looking for a 1-CD Linux install disk, preferably based on Kanotix (www.kanotix.com), but customized to our requirements.
+
+We like Kanotix because of the ease of use of the final installation and the wide range of programs distributed on the CD. 
+
+(As far as we are aware, Kanotix and all programs distributed on the Kanotix CD are distributed under the GPL. However the coder should check that there are no issues with rights.)
+
+We want to supply PCs with Linux pre-installed, and we want to make it as easy as possible for users who have never used Linux previously to get started. In other words, this install CD will be used to install Linux and all programs required for the end users on to new computers.
+
+The current specifications for the computers are Intel Celeron CPU, 256 MB RAM, 80 GB hard disk, CD read/write, 6 USB ports, firewire port, 10/100 ethernet port, but are obviously subject to change in the future. As well, the system must be able to cope with peripherals attached and upgrades by the user ( for example, USB peripherals, broadband connections, local networks, printer, upgrade to DVD read/write, additional memory, etc.)
+
+The install CD will also be supplied to the customers in the event they should require to re-install the system.
+
+The requirements are therefore for a system that is very user-friendly, easy to configure and easy to get started without reading manuals.
+
+
+The Linux installation should have:
+
+* Auto-hardware detection and configuration
+* Use our splash screen and desktop background. (Initial screen resolution should be set to cope with most users' monitors).
+* Simple configuration program to re-run auto-detect and adjust configuration if required (network settings, etc.)
+* Install with a default root password and one user
+* User desktop to use KDE and show show 'Home', 'My Documents', 'Trash', 'Start Here' and a read-me welcome text file.
+* Default applications to be:
+	- browser: Firefox
+	- email client: Thunderbird
+	- text files: gedit
+* Task bar to show on start-up
+	Email
+	Browser, 
+	Open Office writer
+	Open Office Calc
+	Terminal
+	Workspace switcher
+	Date and time
+* Mouse behavior should be as for Windows
+* Four desktops
+* Wide range of applications already installed on the system.
+
+Read-me file should include information that users new to Linux would require, such as:
+
+* How to configure for network, broadband, troubleshoot, etc.
+* How to personalise the system (screen resolution, background, etc.)
+* How to change password, add users, etc.
+* List of popular computer tasks and the recommended Linux programs to do those tasks (eg. for CD and DVD burning use k3b, to listen to MP3s use XMMS, etc.)
+* How to do common tasks in Linux (eg. move a file to a new directory, read a CD, set file associations, etc.)
+* How to create directories that Windows users on the network can access (i.e. how to set up samba)
+* List of major packages on the system (eg. Perl, Java, Python, etc.)
+* How to install or upgrade packages
+
+Operation of install CD
+
+We do not require the install CD to also be a LiveCD (as is the case with Kanotix).
+If it is easier to make it a LiveCD, we would like the install method to be much simpler than is the case at present in Kanotix (open root terminal, etc.)
+
+As well, the install process does NOT need to preserve any existing partitions or support any Windows partitions (although obviously a warning that existing data may be destroyed would be expected where appropriate).
+
+We would like the install process to automatically create the boot and swap partitions. (we would like the install program to create a swap partition to anticipate future possible RAM expansion, for example to 1GB).
+
+Future upgrades:
+
+We require the ability to create up-to-date versions of the install CD as new versions of Linux, Kanotix and the various packages become available. To this end we require a program or procedure that will allow us to upgrade the install CD from time to time.
+
+As well, we must be able to change the splash screen and desktop background as required.
+
+Alternatives:
+
+We welcome suggestions for alternative solutions based on our requirements.
+
